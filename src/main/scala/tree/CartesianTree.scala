@@ -1,12 +1,11 @@
 package tree
 
+import cats.Functor
+import cats.effect.std.{Console, Random}
+import cats.implicits.toFunctorOps
+
 import scala.annotation.tailrec
 import scala.math.Ordering.Implicits._
-
-private object RandomValueGen {
-  private val rand = new scala.util.Random
-  def next(): Int = rand.nextInt()
-}
 
 private sealed trait WalkDirection
 private object WalkDirection {
@@ -14,22 +13,31 @@ private object WalkDirection {
   object Left extends WalkDirection
 }
 
-case class CartesianTreeNode[A](
+private case class CartesianTreeNode[A] private (
   value: A,
   left: Option[CartesianTreeNode[A]],
-  right: Option[CartesianTreeNode[A]]
-)(implicit val valueOrdering: Ordering[A])
-  extends Node[A] {
-  private val randomValue = RandomValueGen.next()
-}
+  right: Option[CartesianTreeNode[A]],
+  randomValue: Int
+) extends Node[A]
 
-object CartesianTreeNode {
+private object CartesianTreeNode {
+  def apply[F[_]: Random: Functor, A](
+    value: A,
+    left: Option[CartesianTreeNode[A]],
+    right: Option[CartesianTreeNode[A]]
+  ): F[CartesianTreeNode[A]] = {
+    Random[F].nextInt.map(rnd => new CartesianTreeNode[A](value, left, right, rnd))
+  }
+
   @tailrec
   private def splitWalkDown[A: Ordering](
     nodeOption: Option[CartesianTreeNode[A]],
     isNodeInLeft: CartesianTreeNode[A] => Boolean,
     acc: List[(CartesianTreeNode[A], WalkDirection)] = List.empty
-  ): (List[(CartesianTreeNode[A], WalkDirection)], (Option[CartesianTreeNode[A]], Option[CartesianTreeNode[A]])) =
+  ): (
+    List[(CartesianTreeNode[A], WalkDirection)],
+    (Option[CartesianTreeNode[A]], Option[CartesianTreeNode[A]])
+  ) =
     nodeOption match {
       case None => (acc, (None, None))
       case Some(node) =>
@@ -129,16 +137,21 @@ object CartesianTreeNode {
   }
 }
 
-class CartesianTree[A: Ordering] private (private val root: CartesianTreeNode[A]) extends Tree[A] {
-  override def add(key: A): Tree[A] = {
+class CartesianTree[F[_]: Functor: Random: Console, A: Ordering] private (private val root: CartesianTreeNode[A])
+  extends Tree[F, A] {
+
+  override def add(key: A): F[Tree[F, A]] = {
     val (less, _, greater) = CartesianTreeNode.splitInThree(Some(root), key)
-    val keyNode = CartesianTreeNode(key, None, None)
-    new CartesianTree(CartesianTreeNode.merge(less, CartesianTreeNode.merge(Some(keyNode), greater)).getOrElse(keyNode))
+    CartesianTreeNode[F, A](key, None, None).map(keyNode =>
+      new CartesianTree(
+        CartesianTreeNode.merge(less, CartesianTreeNode.merge(Some(keyNode), greater)).getOrElse(keyNode)
+      )
+    )
   }
 
-  override def delete(key: A): Option[Tree[A]] = {
+  override def delete(key: A): Option[Tree[F, A]] = {
     val (less, _, greater) = CartesianTreeNode.splitInThree(Some(root), key)
-    CartesianTreeNode.merge(less, greater).map(new CartesianTree[A](_))
+    CartesianTreeNode.merge(less, greater).map(new CartesianTree[F, A](_))
   }
 
   override def foldLeft[B, C](
@@ -185,7 +198,7 @@ class CartesianTree[A: Ordering] private (private val root: CartesianTreeNode[A]
 
   override def size: Int = depthFirstSearch(0) { (acc: Int, _: A) => acc + 1 }
 
-  override def print(): Unit = {
+  override def print(): F[Unit] = {
     def formatEl(el: Option[Node[A]]): String = el match {
       case Some(node) => node.value.toString
       case None       => "()"
@@ -202,7 +215,7 @@ class CartesianTree[A: Ordering] private (private val root: CartesianTreeNode[A]
 
     implicit val printNodeWrapper: NodeWrapper[A, (Option[Node[A]], Int)] = (node: Node[A]) => (Some(node), 1)
 
-    Console.print(
+    Console[F].print(
       foldLeft(("", 1)) { (acc: (String, Int), seqEl: (Option[Node[A]], Int)) =>
         if (acc._2 < seqEl._2)
           (s"${acc._1}\n${formatEl(seqEl._1)} ", seqEl._2)
@@ -225,5 +238,6 @@ class CartesianTree[A: Ordering] private (private val root: CartesianTreeNode[A]
 }
 
 object CartesianTree {
-  def apply[A: Ordering](rootKey: A): CartesianTree[A] = new CartesianTree(CartesianTreeNode(rootKey, None, None))
+  def apply[F[_]: Functor: Console: Random, A: Ordering](rootKey: A): F[CartesianTree[F, A]] =
+    CartesianTreeNode(rootKey, None, None).map(new CartesianTree(_))
 }

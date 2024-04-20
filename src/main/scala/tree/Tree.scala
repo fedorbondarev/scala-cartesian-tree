@@ -13,11 +13,11 @@ object NodeWrapper {
   implicit def defaultNodeWrapper[A]: NodeWrapper[A, Node[A]] = (node: Node[A]) => node
 }
 
-trait Tree[A] {
+trait Tree[F[_], A] {
 
-  def add(key: A): Tree[A]
+  def add(key: A): F[Tree[F, A]]
 
-  def delete(key: A): Option[Tree[A]]
+  def delete(key: A): Option[Tree[F, A]]
 
   def foldLeft[B, C](acc: B)(op: (B, C) => B)(processSeq: (C, Seq[C]) => Seq[C])(implicit
     nodeWrapper: NodeWrapper[A, C]
@@ -33,5 +33,5 @@ trait Tree[A] {
 
   def size: Int
 
-  def print(): Unit
+  def print(): F[Unit]
 }
