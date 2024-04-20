@@ -8,6 +8,8 @@ import cats.implicits.{catsSyntaxApplicativeId, catsSyntaxFlatMapOps}
 import org.scalatest.flatspec.AnyFlatSpec
 import org.scalatest.matchers.should.Matchers
 
+import java.io.ByteArrayOutputStream
+
 class CartesianTreeSpec extends AnyFlatSpec with Matchers {
   val ioRand: IO[Random[IO]] = Random.scalaUtilRandom[IO]
   def ioRandomInt: IO[Int] = ioRand >>= { rnd => rnd.nextInt }
@@ -146,5 +148,23 @@ class CartesianTreeSpec extends AnyFlatSpec with Matchers {
         tree <- seq.foldLeft[IO[Tree[IO, Int]]](CartesianTree[IO, Int](seq.head))((acc, v) => acc >>= (_.add(v)))
       } yield tree.max(tree.depthFirstSearch)
     }).unsafeRunSync() shouldEqual simpleSampleSeqMax
+  }
+
+  // TODO: Mock random and console effects and implement test for print function
+  "print" should "print beautiful tree" in {
+    val seq = simpleSampleSeq
+    IO {
+      val impureOutStream = new ByteArrayOutputStream()
+      Console.withOut(impureOutStream) {
+        ioRand >>= { implicit rnd: Random[IO] =>
+          for {
+            tree <- seq.foldLeft[IO[Tree[IO, Int]]](CartesianTree[IO, Int](seq.head))((acc, v) => acc >>= (_.add(v)))
+            _ <- tree.print()
+          } yield ()
+        }
+      }
+      impureOutStream.flush()
+      impureOutStream
+    }.map(_.toByteArray).unsafeRunSync() shouldEqual "???".getBytes
   }
 }
